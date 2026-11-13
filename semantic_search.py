@@ -2,25 +2,21 @@ from pathlib import Path
 from sentence_transformers import SentenceTransformer
 from ollama import Client
 
-# Read the document.
-project_folder = Path(__file__).resolve().parent
-document_path = project_folder / "data" / "travel_policy.txt"
-document_text = document_path.read_text(encoding="utf-8")
+def load_passages(document_path):
+    document_text = document_path.read_text(encoding="utf-8")
 
-# Prepare the passages.
-passages = [
-    line.strip()
-    for line in document_text.splitlines()
-    if line.strip()
-]
+    passages = []
 
-# Load a pretrained embedding model.
-print("Loading model...")
-model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+    for line in document_text.splitlines():
+        cleaned_line = line.strip()
 
-# Convert each passage into an embedding.
-passage_embeddings = model.encode(passages)
-client = Client(host="http://localhost:11434")
+        if cleaned_line:
+            passages.append(cleaned_line)
+
+    return passages
+
+
+
 
 def build_context(passages, indices):
     context_parts = []
@@ -76,38 +72,56 @@ QUESTION:
 
     return response.message.content
 
-while True:
-    question = input("\nAsk a question (or type exit): ").strip()
+def main():
+    # Prepare the document.
+    project_folder = Path(__file__).resolve().parent
+    document_path = project_folder / "data" / "travel_policy.txt"
+    passages = load_passages(document_path)
 
-    if question.lower() == "exit":
-        print("Goodbye!")
-        break
-
-    if not question:
-        print("Please enter a question.")
-        continue
-
-    # 1. Find relevant passages.
-    scores, top_indices = retrieve_passages(
-        question,
-        model,
-        passage_embeddings
+    # Load the model and encode passages once.
+    print("Loading model...")
+    model = SentenceTransformer(
+        "sentence-transformers/all-MiniLM-L6-v2"
     )
-    
-    print("\nTop matching passages:")
+    passage_embeddings = model.encode(passages)
 
-    for index in top_indices:
-        score = scores[index].item()
+    client = Client(host="http://localhost:11434")
 
-        print(
-            f"[Passage {index + 1} | Similarity: {score:.3f}] "
-            f"{passages[index]}"
+    while True:
+        question = input(
+            "\nAsk a question (or type exit): "
+        ).strip()
+
+        if question.lower() == "exit":
+            print("Goodbye!")
+            break
+
+        if not question:
+            print("Please enter a question.")
+            continue
+
+        scores, top_indices = retrieve_passages(
+            question, model, passage_embeddings
         )
 
-    context = build_context(passages, top_indices)
+        print("\nTop matching passages:")
 
-    print("\nGenerating answer...")
-    answer = generate_answer(client, question, context)
+        for index in top_indices:
+            score = scores[index].item()
 
-    print("\nAnswer:")
-    print(answer)
+            print(
+                f"[Passage {index + 1} | Similarity: {score:.3f}] "
+                f"{passages[index]}"
+            )
+
+        context = build_context(passages, top_indices)
+
+        print("\nGenerating answer...")
+        answer = generate_answer(client, question, context)
+
+        print("\nAnswer:")
+        print(answer)
+
+
+if __name__ == "__main__":
+    main()
